@@ -20,7 +20,7 @@ def dummy_hyperparameters() -> RuntimeHyperparameters:
             "resample_interval": 200_000_000,
         },
         "autoencoder": {"expansion_factor": 4},
-        "loss": {"l1_coefficient": 0.0001},
+        "loss": {"sparsity_coefficient": 0.0001},
         "optimizer": {
             "adam_beta_1": 0.9,
             "adam_beta_2": 0.99,

@@ -15,7 +15,7 @@ from sparse_autoencoder.tensor_types import Axis
         "source_activations",
         "learned_activations",
         "decoded_activations",
-        "l1_coefficient",
+        "sparsity_coefficient",
         "expected_loss",
     ),
     [
@@ -95,12 +95,12 @@ def test_sae_loss(
     decoded_activations: Float[
         Tensor, Axis.names(Axis.BATCH, Axis.COMPONENT_OPTIONAL, Axis.INPUT_OUTPUT_FEATURE)
     ],
-    l1_coefficient: float,
+    sparsity_coefficient: float,
     expected_loss: Float[Tensor, Axis.COMPONENT_OPTIONAL],
 ) -> None:
     """Test the SAE loss."""
     num_components: int = source_activations.shape[1] if source_activations.ndim == 3 else 1  # noqa: PLR2004
-    metric = SparseAutoencoderLoss(num_components, l1_coefficient)
+    metric = SparseAutoencoderLoss(num_components, sparsity_coefficient)
 
     res = metric.forward(
         source_activations=source_activations,
@@ -114,12 +114,12 @@ def test_sae_loss(
 def test_compare_sae_loss_to_composition() -> None:
     """Test the SAE loss metric against composition of l1 and l2."""
     num_components = 3
-    l1_coefficient = 0.01
+    sparsity_coefficient = 0.01
     l1 = L1AbsoluteLoss(num_components)
     l2 = L2ReconstructionLoss(num_components)
-    composition_loss = l1 * l1_coefficient + l2
+    composition_loss = l1 * sparsity_coefficient + l2
 
-    sae_loss = SparseAutoencoderLoss(num_components, l1_coefficient)
+    sae_loss = SparseAutoencoderLoss(num_components, sparsity_coefficient)
 
     source_activations = rand(2, num_components, 3)
     learned_activations = rand(2, num_components, 4)

@@ -1,5 +1,5 @@
 """Sparse Autoencoder loss."""
-from typing import Any
+from typing import Any, Literal
 
 from jaxtyping import Float, Int64
 from pydantic import PositiveFloat, PositiveInt, validate_call
@@ -9,15 +9,20 @@ from torchmetrics import Metric
 
 from sparse_autoencoder.metrics.loss.l1_absolute_loss import L1AbsoluteLoss
 from sparse_autoencoder.metrics.loss.l2_reconstruction_loss import L2ReconstructionLoss
+from sparse_autoencoder.metrics.loss.log1p_loss import Log1PLoss
+from sparse_autoencoder.metrics.loss.prod1p_loss import Prod1PLoss
 from sparse_autoencoder.tensor_types import Axis
 
 
 class SparseAutoencoderLoss(Metric):
     """Sparse Autoencoder loss.
 
-    This is the same as composing `L1AbsoluteLoss() * l1_coefficient + L2ReconstructionLoss()`. It
-    is separated out so that you can use all three metrics (l1, l2, total loss) in the same
+    This is the same as composing `L1AbsoluteLoss() * sparsity_coefficient +
+    L2ReconstructionLoss()`.
+    It is separated out so that you can use all three metrics (l1, l2, total loss) in the same
     `MetricCollection` and they will then share state (to avoid calculating the same thing twice).
+
+    Alternatively, `Log1PLoss` or `Prod1PLoss` can be used instead of `L1AbsoluteLoss`.
     """
 
     # Torchmetrics settings
@@ -29,7 +34,8 @@ class SparseAutoencoderLoss(Metric):
     # Settings
     _num_components: int
     _keep_batch_dim: bool
-    _l1_coefficient: float
+    _sparsity_coefficient: float
+    _sparsity_kind: Literal["l1", "log1p", "prod1p"] = "l1"
 
     @property
     def keep_batch_dim(self) -> bool:
@@ -50,30 +56,28 @@ class SparseAutoencoderLoss(Metric):
         self._keep_batch_dim = keep_batch_dim
         self.reset()  # Reset the metric to update the state
         if keep_batch_dim and not isinstance(self.mse, list):
-            self.add_state(
-                "mse",
-                default=[],
-                dist_reduce_fx="sum",
-            )
-            self.add_state(
-                "absolute_loss",
-                default=[],
-                dist_reduce_fx="sum",
-            )
+            for state in ["mse", "l1_loss", "log1p_loss", "prod1p_loss"]:
+                self.add_state(
+                    state,
+                    default=[],
+                    dist_reduce_fx="sum",
+                )
         elif not isinstance(self.mse, Tensor):
-            self.add_state(
-                "mse",
-                default=torch.zeros(self._num_components),
-                dist_reduce_fx="sum",
-            )
-            self.add_state(
-                "absolute_loss",
-                default=torch.zeros(self._num_components),
-                dist_reduce_fx="sum",
-            )
+            for state in ["mse", "l1_loss", "log1p_loss", "prod1p_loss"]:
+                self.add_state(
+                    state,
+                    default=torch.zeros(self._num_components),
+                    dist_reduce_fx="sum",
+                )
 
     # State
-    absolute_loss: Float[Tensor, Axis.names(Axis.COMPONENT_OPTIONAL)] | list[
+    l1_loss: Float[Tensor, Axis.names(Axis.COMPONENT_OPTIONAL)] | list[
+        Float[Tensor, Axis.names(Axis.BATCH, Axis.COMPONENT_OPTIONAL)]
+    ] | None = None
+    log1p_loss: Float[Tensor, Axis.names(Axis.COMPONENT_OPTIONAL)] | list[
+        Float[Tensor, Axis.names(Axis.BATCH, Axis.COMPONENT_OPTIONAL)]
+    ] | None = None
+    prod1p_loss: Float[Tensor, Axis.names(Axis.COMPONENT_OPTIONAL)] | list[
         Float[Tensor, Axis.names(Axis.BATCH, Axis.COMPONENT_OPTIONAL)]
     ] | None = None
     mse: Float[Tensor, Axis.COMPONENT_OPTIONAL] | list[
@@ -85,15 +89,17 @@ class SparseAutoencoderLoss(Metric):
     def __init__(
         self,
         num_components: PositiveInt = 1,
-        l1_coefficient: PositiveFloat = 0.001,
+        sparsity_coefficient: PositiveFloat = 0.001,
         *,
+        sparsity_kind: Literal["l1", "log1p", "prod1p"] = "l1",
         keep_batch_dim: bool = False,
     ):
         """Initialise the metric."""
         super().__init__()
         self._num_components = num_components
         self.keep_batch_dim = keep_batch_dim
-        self._l1_coefficient = l1_coefficient
+        self._sparsity_coefficient = sparsity_coefficient
+        self._sparsity_kind = sparsity_kind
 
         # Add the state
         self.add_state(
@@ -116,23 +122,46 @@ class SparseAutoencoderLoss(Metric):
         **kwargs: Any,  # type: ignore # noqa: ARG002, ANN401 (allows combining with other metrics))
     ) -> None:
         """Update the metric."""
-        absolute_loss = L1AbsoluteLoss.calculate_abs_sum(learned_activations)
+        l1_loss = L1AbsoluteLoss.calculate_abs_sum(learned_activations)
+        log1p_loss = Log1PLoss.calculate_abs_log1p_sum(learned_activations)
+        prod1p_loss = Prod1PLoss.calculate_abs_prod1p(learned_activations)
         mse = L2ReconstructionLoss.calculate_mse(decoded_activations, source_activations)
 
         if self.keep_batch_dim:
-            self.absolute_loss.append(absolute_loss)  # type: ignore
+            self.l1_loss.append(l1_loss)  # type: ignore
+            self.log1p_loss.append(log1p_loss)  # type: ignore
+            self.prod1p_loss.append(prod1p_loss)  # type: ignore
             self.mse.append(mse)  # type: ignore
         else:
-            self.absolute_loss += absolute_loss.sum(dim=0)
+            self.l1_loss += l1_loss.sum(dim=0)
+            self.log1p_loss += log1p_loss.sum(dim=0)
+            self.prod1p_loss += prod1p_loss.sum(dim=0)
             self.mse += mse.sum(dim=0)
             self.num_activation_vectors += learned_activations.shape[0]
 
+    @property
+    def sparsity_loss(
+        self,
+    ) -> (
+        Float[Tensor, Axis.names(Axis.COMPONENT_OPTIONAL)]
+        | list[Float[Tensor, Axis.names(Axis.BATCH, Axis.COMPONENT_OPTIONAL)]]
+        | None
+    ):
+        """Get the sparsity loss."""
+        match self._sparsity_kind:
+            case "l1":
+                return self.l1_loss
+            case "log1p":
+                return self.log1p_loss
+            case "prod1p":
+                return self.prod1p_loss
+
     def compute(self) -> Tensor:
         """Compute the metric."""
-        l1 = (
-            torch.cat(self.absolute_loss)  # type: ignore
+        sparsity = (
+            torch.cat(self.sparsity_loss)  # type: ignore
             if self.keep_batch_dim
-            else self.absolute_loss / self.num_activation_vectors
+            else self.sparsity_loss / self.num_activation_vectors
         )
 
         l2 = (
@@ -141,7 +170,7 @@ class SparseAutoencoderLoss(Metric):
             else self.mse / self.num_activation_vectors
         )
 
-        return l1 * self._l1_coefficient + l2
+        return sparsity * self._sparsity_coefficient + l2
 
     def forward(  # type: ignore[override] (narrowing)
         self,

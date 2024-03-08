@@ -34,7 +34,8 @@ def train() -> None:
     sweep_config = SweepConfig(
         parameters=Hyperparameters(
             loss=LossHyperparameters(
-                l1_coefficient=Parameter(values=[0.0001]),
+                sparsity_coefficient=Parameter(values=[0.0001]),
+                sparsity_kind=Parameter(values=["l1", "log1p", "prod1p"]),
             ),
             optimizer=OptimizerHyperparameters(
                 lr=Parameter(value=0.0001),

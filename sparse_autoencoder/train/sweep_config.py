@@ -94,20 +94,30 @@ class AutoencoderRuntimeHyperparameters(TypedDict):
 class LossHyperparameters(NestedParameter):
     """Loss hyperparameters."""
 
-    l1_coefficient: Parameter[float] = field(default=Parameter(1e-3))
-    """L1 Penalty Coefficient.
+    sparsity_coefficient: Parameter[float] = field(default=Parameter(1e-3))
+    """Sparsity Penalty Coefficient.
 
-    The L1 penalty is the absolute sum of learned (hidden) activations, multiplied by this constant.
+    The sparsity penalty is the result of evaluating the function defined by `sparsity_kind` on the
+    learned (hidden) activations, multiplied by this constant.
     The penalty encourages sparsity in the learned activations. This loss penalty can be reduced by
-    using more features, or using a lower L1 coefficient. If your expansion factor is 2, then a good
-    starting point for the L1 coefficient is 1e-3.
+    using more features, or using a lower sparsity coefficient. If your expansion factor is 2, then
+    a good starting point for the sparsity coefficient with L1 sparsity loss is 1e-3.
+    """
+
+    sparsity_kind: Parameter[Literal["l1", "log1p", "prod1p"]] = field(default=Parameter("l1"))
+    """Sparsity Penalty Loss Function
+
+    l1 - L1 absolute loss - the sum of the absolute values of the learned (hidden) activations
+    log1p - the sum of the log of one plus the absolute values of the learned (hidden) activations
+    prod1p - the product of one plus the absolute values of the learned (hidden) activations
     """
 
 
 class LossRuntimeHyperparameters(TypedDict):
     """Loss runtime hyperparameters."""
 
-    l1_coefficient: float
+    sparsity_coefficient: float
+    sparsity_kind: Literal["l1", "log1p", "prod1p"]
 
 
 @dataclass(frozen=True)

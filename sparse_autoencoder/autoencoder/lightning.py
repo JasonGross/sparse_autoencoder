@@ -1,6 +1,6 @@
 """PyTorch Lightning module for training a sparse autoencoder."""
 from functools import partial
-from typing import Any
+from typing import Any, Literal
 
 from jaxtyping import Float
 from lightning.pytorch import LightningModule
@@ -22,6 +22,8 @@ from sparse_autoencoder.autoencoder.model import (
 from sparse_autoencoder.autoencoder.types import ResetOptimizerParameterDetails
 from sparse_autoencoder.metrics.loss.l1_absolute_loss import L1AbsoluteLoss
 from sparse_autoencoder.metrics.loss.l2_reconstruction_loss import L2ReconstructionLoss
+from sparse_autoencoder.metrics.loss.log1p_loss import Log1PLoss
+from sparse_autoencoder.metrics.loss.prod1p_loss import Prod1PLoss
 from sparse_autoencoder.metrics.loss.sae_loss import SparseAutoencoderLoss
 from sparse_autoencoder.metrics.train.l0_norm import L0NormMetric
 from sparse_autoencoder.metrics.train.neuron_activity import NeuronActivityMetric
@@ -35,7 +37,9 @@ class LitSparseAutoencoderConfig(SparseAutoencoderConfig):
 
     component_names: list[str]
 
-    l1_coefficient: float = 0.001
+    sparsity_coefficient: float = 0.001
+
+    sparsity_kind: Literal["l1", "log1p", "prod1p"] = "l1"
 
     resample_interval: PositiveInt = 200000000
 
@@ -91,7 +95,10 @@ class LitSparseAutoencoder(LightningModule):
 
         # Create the loss & metrics
         self.loss_fn = SparseAutoencoderLoss(
-            num_components, config.l1_coefficient, keep_batch_dim=True
+            num_components,
+            config.sparsity_coefficient,
+            sparsity_kind=config.sparsity_kind,
+            keep_batch_dim=True,
         )
 
         self.train_metrics = MetricCollection(
@@ -104,11 +111,21 @@ class LitSparseAutoencoder(LightningModule):
                 "l1": add_component_names(
                     L1AbsoluteLoss(num_components), prefix="loss/l1_learned_activations"
                 ),
+                "log1p": add_component_names(
+                    Log1PLoss(num_components), prefix="loss/log1p_learned_activations"
+                ),
+                "prod1p": add_component_names(
+                    Prod1PLoss(num_components), prefix="loss/prod1p_learned_activations"
+                ),
                 "l2": add_component_names(
                     L2ReconstructionLoss(num_components), prefix="loss/l2_reconstruction"
                 ),
                 "loss": add_component_names(
-                    SparseAutoencoderLoss(num_components, config.l1_coefficient),
+                    SparseAutoencoderLoss(
+                        num_components,
+                        config.sparsity_coefficient,
+                        sparsity_kind=config.sparsity_kind,
+                    ),
                     prefix="loss/total",
                 ),
             },
@@ -116,7 +133,7 @@ class LitSparseAutoencoder(LightningModule):
             # loss and l1 metrics). Note the metric that goes first must calculate all the states
             # needed by the rest of the group.
             compute_groups=[
-                ["loss", "l1", "l2"],
+                ["loss", "l1", "log1p", "prod1p", "l2"],
                 ["activity"],
                 ["l0"],
             ],

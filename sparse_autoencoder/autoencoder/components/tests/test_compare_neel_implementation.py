@@ -62,7 +62,7 @@ def test_biases_initialised_same_way() -> None:
     """Test that the biases are initialised the same."""
     n_input_features: int = 2
     n_learned_features: int = 3
-    l1_coefficient: float = 0.01
+    sparsity_coefficient: float = 0.01
 
     torch.random.manual_seed(0)
     autoencoder = SparseAutoencoder(
@@ -76,7 +76,7 @@ def test_biases_initialised_same_way() -> None:
     neel_autoencoder = NeelAutoencoder(
         d_hidden=n_learned_features,
         act_size=n_input_features,
-        l1_coeff=l1_coefficient,
+        l1_coeff=sparsity_coefficient,
     )
 
     assert torch.allclose(autoencoder.tied_bias, neel_autoencoder.b_dec)
@@ -90,7 +90,7 @@ def test_forward_pass_same_weights() -> None:
     """Test a forward pass with the same weights."""
     n_input_features: int = 12
     n_learned_features: int = 48
-    l1_coefficient: float = 0.01
+    sparsity_coefficient: float = 0.01
 
     autoencoder = SparseAutoencoder(
         SparseAutoencoderConfig(
@@ -101,7 +101,7 @@ def test_forward_pass_same_weights() -> None:
     neel_autoencoder = NeelAutoencoder(
         d_hidden=n_learned_features,
         act_size=n_input_features,
-        l1_coeff=l1_coefficient,
+        l1_coeff=sparsity_coefficient,
     )
 
     # Set the same weights
@@ -123,7 +123,7 @@ def test_unit_norm_weights() -> None:
     """Test that the decoder weights are unit normalized in the same way."""
     n_input_features: int = 2
     n_learned_features: int = 4
-    l1_coefficient: float = 0.01
+    sparsity_coefficient: float = 0.01
 
     autoencoder = SparseAutoencoder(
         SparseAutoencoderConfig(
@@ -134,7 +134,7 @@ def test_unit_norm_weights() -> None:
     neel_autoencoder = NeelAutoencoder(
         d_hidden=n_learned_features,
         act_size=n_input_features,
-        l1_coeff=l1_coefficient,
+        l1_coeff=sparsity_coefficient,
     )
     pre_unit_norm_weights = autoencoder.decoder.weight.clone()
     pre_unit_norm_neel_weights = neel_autoencoder.W_dec.clone()
@@ -168,7 +168,7 @@ def test_unit_norm_weights_grad() -> None:
     torch.random.manual_seed(42)
     n_input_features: int = 2
     n_learned_features: int = 4
-    l1_coefficient: float = 0.01
+    sparsity_coefficient: float = 0.01
 
     autoencoder = SparseAutoencoder(
         SparseAutoencoderConfig(
@@ -179,7 +179,7 @@ def test_unit_norm_weights_grad() -> None:
     neel_autoencoder = NeelAutoencoder(
         d_hidden=n_learned_features,
         act_size=n_input_features,
-        l1_coeff=l1_coefficient,
+        l1_coeff=sparsity_coefficient,
     )
 
     # Set the same decoder weights
